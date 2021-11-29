@@ -4,7 +4,7 @@ local package_version = "0.1.0"
 local rockspec_revision = "1"
 
 local github_account_name = "propzians"
-local github_repo_name = "/kong-plugin-jwt-blacklist"
+local github_repo_name = "kong-plugin-jwt-blacklist"
 local git_checkout = package_version == "dev" and "master" or package_version
 
 
