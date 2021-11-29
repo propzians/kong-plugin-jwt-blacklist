@@ -1,6 +1,6 @@
 local constants = require "kong.constants"
 local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
-
+local redis = require "resty.redis"
 
 local fmt = string.format
 local kong = kong
@@ -23,44 +23,21 @@ local JwtBlacklistHandler = {
 -- @return token JWT token contained in request (can be a table) or nil
 -- @return err
 local function retrieve_token(conf)
-    local args = kong.request.get_query()
-    for _, v in ipairs(conf.uri_param_names) do
-        if args[v] then
-            return args[v]
-        end
-    end
-
-    local var = ngx.var
-    for _, v in ipairs(conf.cookie_names) do
-        local cookie = var["cookie_" .. v]
-        if cookie and cookie ~= "" then
-            return cookie
-        end
-    end
 
     local request_headers = kong.request.get_headers()
-    for _, v in ipairs(conf.header_names) do
-        local token_header = request_headers[v]
-        if token_header then
-            if type(token_header) == "table" then
-                token_header = token_header[1]
-            end
-            local iterator, iter_err = re_gmatch(token_header, "\\s*[Bb]earer\\s+(.+)")
-            if not iterator then
-                kong.log.err(iter_err)
-                break
-            end
+    local token_header = request_headers["Authorization"]
+    local iterator, iter_err = re_gmatch(token_header, "\\s*[Bb]earer\\s+(.+)")
+    if not iterator then
+        kong.log.err(iter_err)
+    end
 
-            local m, err = iterator()
-            if err then
-                kong.log.err(err)
-                break
-            end
+    local m, err = iterator()
+    if err then
+        kong.log.err(err)
+    end
 
-            if m and #m > 0 then
-                return m[1]
-            end
-        end
+    if m and #m > 0 then
+        return m[1]
     end
 end
 
@@ -73,16 +50,19 @@ local function do_authentication(conf)
     local token_type = type(token)
     if token_type ~= "string" then
         if token_type == "nil" then
+            kong.log.err("[jwt-blacklist] token type nill")
             return false, {
                 status = 401,
                 message = "Unauthorized"
             }
         elseif token_type == "table" then
+            kong.log.err("[jwt-blacklist] token type table")
             return false, {
                 status = 401,
                 message = "Multiple tokens provided"
             }
         else
+            kong.log.err("[jwt-blacklist] Unrecognizable token")
             return false, {
                 status = 401,
                 message = "Unrecognizable token"
@@ -91,12 +71,41 @@ local function do_authentication(conf)
     end
 
     -- Check jwt token in blacklist
+    -- Init Redis connection
+    kong.log.info("[jwt-blacklist] Begin check jwt blacklist")
+
+    local red = redis:new()
+    red:set_timeout(20000)
+
+    -- Connet to redis
+    local ok, err = red:connect("host.docker.internal", 6379)
+    if not ok then
+        kong.log.err("[jwt-blacklist] Could connect redis")
+        return kong.response.exit(503, "Service Temporarily Unavailable")
+    end
+
+    kong.log.err("[jwt-blacklist] Token " .. token)
     
+    local verify, err = red:exists(token)
+    kong.log.err("[jwt-blacklist] existed " .. verify)
+    if err then
+        kong.log.err("[jwt-blacklist] Could connect redis")
+        return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+    end
+
+    if verify > 0 then
+        kong.log.err("[jwt-blacklist] Token already in blacklist")
+        return false, {
+            status = 401,
+            message = "Token already in blacklist"
+        }
+    end
 
     return true
+
 end
 
-function JwtBlacklistHandler.access(self, config)
+function JwtBlacklistHandler.access(self, conf)
     -- check if preflight request and whether it should be authenticated
     if not conf.run_on_preflight and kong.request.get_method() == "OPTIONS" then
         return
@@ -110,22 +119,9 @@ function JwtBlacklistHandler.access(self, config)
 
     local ok, err = do_authentication(conf)
     if not ok then
-        if conf.anonymous then
-            -- get anonymous user
-            local consumer_cache_key = kong.db.consumers:cache_key(conf.anonymous)
-            local consumer, err = kong.cache:get(consumer_cache_key, nil, kong.client.load_consumer, conf.anonymous,
-                true)
-            if err then
-                return error(err)
-            end
-
-            set_consumer(consumer)
-
-        else
-            return kong.response.exit(err.status, err.errors or {
-                message = err.message
-            })
-        end
+        return kong.response.exit(err.status, err.errors or {
+            message = err.message
+        })
     end
 
 end

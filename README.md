@@ -47,8 +47,11 @@ docker run -d --name kong \                                                     
     -p 8001:8001 \                                                                                                     │bash-5.1$ clear%
     -p 8444:8444 \
 
-##config
+## config
+
 https://docs.konghq.com/gateway-oss/2.5.x/getting-started/configuring-a-service/
+
+```shell
 
 curl -i -X POST \
   --url http://localhost:8001/services/ \
@@ -69,13 +72,73 @@ curl -i -X GET \
 
 curl -i -X POST --url http://localhost:8001/services/demo-service/plugins/ --data 'name=jwt-blacklist'
 
+curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
+--form 'name="jwt-blacklist"' \
+--form 'config.redis_host="host.docker.internal"' \
+--form 'config.redis_port=6379' \
+--form 'config.redis_timeout="2000"'
+
+http --form POST 'http://kong:8001/services/demo-service/plugins' \
+  name=jwt-blacklist \
+  config.redis_token_prefix=Token \
+  config.redis_host=host.docker.internal \
+  config.redis_port=6379 \
+  config.redis_password='[redis password]' \
+  config.redis_timeout=2000 \
+  config.token_secret=secret
+
+
+curl -i -X GET --url http://localhost:8001/services/demo-service/plugins/ 
+
+
+
+Delete plugins
+curl -i -X DELETE --url http://localhost:8001/services/demo-service/plugins/48ed6a6f-c283-4fbe-b745-c48fde6c35ca
 
  http :8001/config config=@kong.yml
 
-
+```
  https://hub.docker.com/_/kong
 
+curl -i -X POST \
+  --url http://localhost:8001/services/demo-service/plugins/ \
+  --data 'name=jwt-blacklist'
 
  ###
 
  kong migrations bootstrap [-c /path/to/kong.conf]
+
+
+
+
+
+### Build image
+
+
+export DOCKER_BUILDKIT=0
+export COMPOSE_DOCKER_CLI_BUILD=0
+
+docker build --no-cache \
+--build-arg KONG_BASE="kong:2.6.0-alpine" \
+--build-arg PLUGINS="kong-plugin-jwt-blacklist" \
+--tag "kong-jwt-blacklist" .
+
+
+
+###  Test
+
+
+curl -i -X GET --url http://localhost:8000/ \
+  --header 'Host: demo.com' \
+  --header 'Authorization: test'
+
+
+
+curl -i -X GET --url http://localhost:8000/ \
+  --header 'Host: demo.com' \
+  --header 'Authorization: Bearer test'
+
+
+curl -i -X GET --url http://localhost:8000/ \
+  --header 'Host: demo.com' \
+  --header 'Authorization: Bearer hai'
