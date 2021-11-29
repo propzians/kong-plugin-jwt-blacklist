@@ -10,8 +10,8 @@ local ipairs = ipairs
 local tostring = tostring
 local re_gmatch = ngx.re.gmatch
 
-local PropzyJwtBlacklistHandler = {
-    VERSION = "1.0.0",
+local JwtBlacklistHandler = {
+    VERSION = "0.1.0",
     PRIORITY = 1006
 }
 
@@ -96,7 +96,7 @@ local function do_authentication(conf)
     return true
 end
 
-function PropzyJwtBlacklistHandler.access(self, config)
+function JwtBlacklistHandler.access(self, config)
     -- check if preflight request and whether it should be authenticated
     if not conf.run_on_preflight and kong.request.get_method() == "OPTIONS" then
         return
@@ -130,4 +130,4 @@ function PropzyJwtBlacklistHandler.access(self, config)
 
 end
 
-return PropzyJwtBlacklistHandler
+return JwtBlacklistHandler
