@@ -85,6 +85,14 @@ curl --location --request POST 'http://localhost:8001/services/demo-service/plug
 --form 'config.redis_port=6379' \
 --form 'config.redis_timeout="2000"'
 
+--- with prefix 
+curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
+--form 'name="jwt-blacklist"' \
+--form 'config.redis_host="host.docker.internal"' \
+--form 'config.redis_port=6379' \
+--form 'config.redis_timeout="2000"' \
+--form 'config.token_prefix=token_'
+
 http --form POST 'http://kong:8001/services/demo-service/plugins' \
   name=jwt-blacklist \
   config.redis_token_prefix=Token \
@@ -99,8 +107,8 @@ curl -i -X GET --url http://localhost:8001/services/demo-service/plugins/
 
 
 
-Delete plugins
-curl -i -X DELETE --url http://localhost:8001/services/demo-service/plugins/09d62db4-045f-46d3-847c-222e4a37e982
+--Delete plugins
+curl -i -X DELETE --url http://localhost:8001/services/demo-service/plugins/d5b59ce0-8048-49b7-b2d8-e5b9c2a8e7b0
 
  http :8001/config config=@kong.yml
 

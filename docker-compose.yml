@@ -82,6 +82,21 @@ services:
     image: redis
     ports:
       - 6379:6379
+#  keycloak:
+#    image: wizzn/keycloak:14
+#    environment:
+#      DB_VENDOR: POSTGRES
+#      DB_ADDR: postgres
+#      DB_DATABASE: keycloak
+#      DB_USER: kong
+#      DB_SCHEMA: public
+#      DB_PASSWORD: kong
+#      KEYCLOAK_USER: admin
+#      KEYCLOAK_PASSWORD: admin
+#    ports:
+#      - 8083:8080
+#    depends_on:
+#      - kong-database
 
 volumes:
   db-data-kong-postgres:

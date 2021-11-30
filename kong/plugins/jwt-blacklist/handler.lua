@@ -1,13 +1,16 @@
 local redis = require "resty.redis"
+local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
 
 local cjson = require "cjson"
 local kong = kong
 local type = type
+local ipairs = ipairs
+local tostring = tostring
 local error = error
 local re_gmatch = ngx.re.gmatch
 
 local JwtBlacklistHandler = {
-    VERSION = "0.1.1",
+    VERSION = "0.1.2",
     PRIORITY = 1006
 }
 
@@ -18,22 +21,45 @@ local JwtBlacklistHandler = {
 -- @param conf Plugin configuration
 -- @return token JWT token contained in request (can be a table) or nil
 -- @return err
-local function retrieve_token()
+local function retrieve_token(conf)
+    local args = kong.request.get_query()
+    for _, v in ipairs(conf.uri_param_names) do
+        if args[v] then
+            return args[v]
+        end
+    end
+
+    local var = ngx.var
+    for _, v in ipairs(conf.cookie_names) do
+        local cookie = var["cookie_" .. v]
+        if cookie and cookie ~= "" then
+            return cookie
+        end
+    end
 
     local request_headers = kong.request.get_headers()
-    local token_header = request_headers["Authorization"]
-    local iterator, iter_err = re_gmatch(token_header, "\\s*[Bb]earer\\s+(.+)")
-    if not iterator then
-        kong.log.err(iter_err)
-    end
+    for _, v in ipairs(conf.header_names) do
+        local token_header = request_headers[v]
+        if token_header then
+            if type(token_header) == "table" then
+                token_header = token_header[1]
+            end
+            local iterator, iter_err = re_gmatch(token_header, "\\s*[Bb]earer\\s+(.+)")
+            if not iterator then
+                kong.log.err(iter_err)
+                break
+            end
 
-    local m, err = iterator()
-    if err then
-        kong.log.err(err)
-    end
+            local m, err = iterator()
+            if err then
+                kong.log.err(err)
+                break
+            end
 
-    if m and #m > 0 then
-        return m[1]
+            if m and #m > 0 then
+                return m[1]
+            end
+        end
     end
 end
 
@@ -101,8 +127,8 @@ local function get_redis_connection(conf)
     return red
 end
 
-local function do_authentication(conf)
-    local token, err = retrieve_token()
+local function check_valid_token(conf)
+    local token, err = retrieve_token(conf)
     if err then
         return error(err)
     end
@@ -110,19 +136,16 @@ local function do_authentication(conf)
     local token_type = type(token)
     if token_type ~= "string" then
         if token_type == "nil" then
-            kong.log.err("[jwt-blacklist] token type nil")
             return false, {
                 status = 401,
                 message = "Unauthorized"
             }
         elseif token_type == "table" then
-            kong.log.err("[jwt-blacklist] token type table")
             return false, {
                 status = 401,
                 message = "Multiple tokens provided"
             }
         else
-            kong.log.err("[jwt-blacklist] Unrecognizable token")
             return false, {
                 status = 401,
                 message = "Unrecognizable token"
@@ -130,31 +153,59 @@ local function do_authentication(conf)
         end
     end
 
-    -- Check jwt token in blacklist
-    -- Init Redis connection
-    kong.log.info("[jwt-blacklist] Begin check jwt blacklist")
+    -- Validate jwt token in blacklist
+    if conf.token_verify then
+        local red, redis_err = get_redis_connection(conf)
+        if not red then
+            kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
+            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+        end
 
-    local red, redis_err = get_redis_connection(conf)
-    if not red then
-        kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
-        return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+        local verify, q_err = red:exists(conf.token_prefix .. token)
+        if q_err then
+            kong.log.err("[jwt-blacklist] Could connect redis", q_err)
+            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+        end
+
+        if verify > 0 then
+            kong.log.info("[jwt-blacklist] Token already in blacklist: " .. token)
+            return false, {
+                status = 401,
+                message = "Token already in blacklist"
+            }
+        end
     end
 
-    kong.log.info("[jwt-blacklist] Token " .. token)
+    -- Validate userId in blacklist
+    if conf.user_verify then
+        local red, redis_err = get_redis_connection(conf)
+        if not red then
+            kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
+            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+        end
 
-    local verify, q_err = red:exists(token)
-    kong.log.err("[jwt-blacklist] existed " .. verify)
-    if q_err then
-        kong.log.err("[jwt-blacklist] Could connect redis", q_err)
-        return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
-    end
+        -- Decode token to find out who the consumer is
+        local jwt, decode_error = jwt_decoder:new(token)
+        if decode_error then
+            return false, { status = 401, message = "Invalid token"}
+        end
 
-    if verify > 0 then
-        kong.log.info("[jwt-blacklist] Token already in blacklist")
-        return false, {
-            status = 401,
-            message = "Token already in blacklist"
-        }
+        local claims = jwt.claims
+        local user_id = claims[conf.user_claim_name]
+
+        local verify, q_err = red:exists(conf.user_prefix .. user_id)
+        if q_err then
+            kong.log.err("[jwt-blacklist] Could connect redis", q_err)
+            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+        end
+
+        if verify > 0 then
+            kong.log.info("[jwt-blacklist] Your account has been locked: " .. user_id)
+            return false, {
+                status = 401,
+                message = "Your account has been locked"
+            }
+        end
     end
 
     return true
@@ -167,13 +218,7 @@ function JwtBlacklistHandler.access(self, conf)
         return
     end
 
-    if conf.anonymous and kong.client.get_credential() then
-        -- we're already authenticated, and we're configured for using anonymous,
-        -- hence we're in a logical OR between auth methods and we're already done.
-        return
-    end
-
-    local ok, err = do_authentication(conf)
+    local ok, err = check_valid_token(conf)
     if not ok then
         return kong.response.exit(err.status, err.errors or {
             message = err.message
