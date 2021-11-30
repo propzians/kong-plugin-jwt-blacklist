@@ -39,9 +39,9 @@ return {
                     elements = { type = "string" },
                     default = { "authorization" },
                 }, },
-                { client_id = { type = "string" , required = true}, },
-                { client_secret = { type = "string" , required = true}, },
-                { introspection_endpoint = { type = "string" , required = true}, },
+                { client_id = { type = "string" , required = false}, },
+                { client_secret = { type = "string" , required = false}, },
+                { introspection_endpoint = { type = "string" , required = false}, },
             }
         },
         },

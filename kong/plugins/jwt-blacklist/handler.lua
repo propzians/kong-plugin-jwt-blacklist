@@ -1,4 +1,5 @@
 local redis = require "resty.redis"
+local oidc = require("resty.openidc")
 local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
 
 local cjson = require "cjson"
@@ -127,8 +128,19 @@ local function get_redis_connection(conf)
 end
 
 
+local function get_options(config)
+    return {
+        client_id = config.client_id,
+        client_secret = config.client_secret,
+        introspection_endpoint = config.introspection_endpoint,
+    }
+end
+
 local function introspect_token(conf, token)
-    local res, err = require("resty.openidc").introspect(conf)
+    kong.log.info("[jwt-blacklist] Begin introspect token".. token)
+
+    local option = get_options(conf)
+    local res, err = oidc.introspect(option)
     if err then
         kong.log.info("[jwt-blacklist] introspect token fail " .. token, err)
         return false, {
@@ -136,6 +148,7 @@ local function introspect_token(conf, token)
             message = "Token has been locked"
         }
     end
+    kong.log.info("[jwt-blacklist] introspect token ok " .. token, res)
     return res
 end
 
@@ -170,13 +183,15 @@ local function check_valid_token(conf)
         local red, redis_err = get_redis_connection(conf)
         if not red then
             kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
-            introspect_token(conf, token)
+            local ok, err = introspect_token(conf, token)
+            return ok, err
         end
         ---SISMEMBER
         local verify, q_err = red:sismember(conf.token_member, conf.token_prefix .. token)
         if q_err then
             kong.log.err("[jwt-blacklist] Could connect redis", q_err)
-            introspect_token(conf, token)
+            local ok, err = introspect_token(conf, token)
+            return ok, err
         end
 
         if verify > 0 then
@@ -193,7 +208,8 @@ local function check_valid_token(conf)
         local red, redis_err = get_redis_connection(conf)
         if not red then
             kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
-            introspect_token(conf, token)
+            local ok, err = introspect_token(conf, token)
+            return ok, err
         end
 
         -- Decode token to find out who the consumer is
@@ -208,7 +224,8 @@ local function check_valid_token(conf)
         local verify, q_err = red:sismember(conf.user_member, conf.user_prefix .. user_id)
         if q_err then
             kong.log.err("[jwt-blacklist] Could connect redis", q_err)
-            introspect_token(conf, token)
+            local ok, err = introspect_token(conf, token)
+            return ok, err
         end
 
         if verify > 0 then

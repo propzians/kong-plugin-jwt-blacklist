@@ -78,10 +78,10 @@ services:
   #     KEYCLOAK_PASSWORD: admin
   #   ports:
   #     - 8082:8080
-  redis_local:
-    image: redis
-    ports:
-      - 6379:6379
+#  redis_local:
+#    image: redis
+#    ports:
+#      - 6379:6379
 #  keycloak:
 #    image: wizzn/keycloak:14
 #    environment:
