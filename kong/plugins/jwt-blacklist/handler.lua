@@ -1,17 +1,13 @@
-local constants = require "kong.constants"
-local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
 local redis = require "resty.redis"
 
-local fmt = string.format
+local cjson = require "cjson"
 local kong = kong
 local type = type
 local error = error
-local ipairs = ipairs
-local tostring = tostring
 local re_gmatch = ngx.re.gmatch
 
 local JwtBlacklistHandler = {
-    VERSION = "0.1.0",
+    VERSION = "0.1.1",
     PRIORITY = 1006
 }
 
@@ -22,7 +18,7 @@ local JwtBlacklistHandler = {
 -- @param conf Plugin configuration
 -- @return token JWT token contained in request (can be a table) or nil
 -- @return err
-local function retrieve_token(conf)
+local function retrieve_token()
 
     local request_headers = kong.request.get_headers()
     local token_header = request_headers["Authorization"]
@@ -41,8 +37,72 @@ local function retrieve_token(conf)
     end
 end
 
+local function is_present(str)
+    return str and str ~= "" and str ~= null
+end
+
+local sock_opts = {}
+
+local function get_redis_connection(conf)
+    kong.log.info("[[jwt-blacklist] config" .. cjson.encode(conf))
+
+    local red = redis:new()
+    red:set_timeout(conf.redis_timeout)
+
+    sock_opts.ssl = conf.redis_ssl
+    sock_opts.ssl_verify = conf.redis_ssl_verify
+    sock_opts.server_name = conf.redis_server_name
+
+    -- use a special pool name only if redis_database is set to non-zero
+    -- otherwise use the default pool name host:port
+    sock_opts.pool = conf.redis_database and
+            conf.redis_host .. ":" .. conf.redis_port ..
+                    ":" .. conf.redis_database
+    local ok, err = red:connect(conf.redis_host, conf.redis_port,
+            sock_opts)
+    if not ok then
+        kong.log.err("failed to connect to Redis: ", err)
+        return nil, err
+    end
+
+    local times, err = red:get_reused_times()
+    if err then
+        kong.log.err("failed to get connect reused times: ", err)
+        return nil, err
+    end
+
+    if times == 0 then
+        if is_present(conf.redis_password) then
+            local ok, err
+            if is_present(conf.redis_username) then
+                ok, err = red:auth(conf.redis_username, conf.redis_password)
+            else
+                ok, err = red:auth(conf.redis_password)
+            end
+
+            if not ok then
+                kong.log.err("failed to auth Redis: ", err)
+                return nil, err
+            end
+        end
+
+        if conf.redis_database ~= 0 then
+            -- Only call select first time, since we know the connection is shared
+            -- between instances that use the same redis database
+
+            local ok, err = red:select(conf.redis_database)
+            if not ok then
+                kong.log.err("failed to change Redis database: ", err)
+                return nil, err
+            end
+        end
+    end
+
+    return red
+end
+
 local function do_authentication(conf)
-    local token, err = retrieve_token(conf)
+    local token, err = retrieve_token()
     if err then
         return error(err)
     end
@@ -50,7 +110,7 @@ local function do_authentication(conf)
     local token_type = type(token)
     if token_type ~= "string" then
         if token_type == "nil" then
-            kong.log.err("[jwt-blacklist] token type nill")
+            kong.log.err("[jwt-blacklist] token type nil")
             return false, {
                 status = 401,
                 message = "Unauthorized"
@@ -74,27 +134,23 @@ local function do_authentication(conf)
     -- Init Redis connection
     kong.log.info("[jwt-blacklist] Begin check jwt blacklist")
 
-    local red = redis:new()
-    red:set_timeout(20000)
-
-    -- Connet to redis
-    local ok, err = red:connect("host.docker.internal", 6379)
-    if not ok then
-        kong.log.err("[jwt-blacklist] Could connect redis")
-        return kong.response.exit(503, "Service Temporarily Unavailable")
+    local red, redis_err = get_redis_connection(conf)
+    if not red then
+        kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
+        return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
     end
 
-    kong.log.err("[jwt-blacklist] Token " .. token)
-    
-    local verify, err = red:exists(token)
+    kong.log.info("[jwt-blacklist] Token " .. token)
+
+    local verify, q_err = red:exists(token)
     kong.log.err("[jwt-blacklist] existed " .. verify)
-    if err then
-        kong.log.err("[jwt-blacklist] Could connect redis")
+    if q_err then
+        kong.log.err("[jwt-blacklist] Could connect redis", q_err)
         return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
     end
 
     if verify > 0 then
-        kong.log.err("[jwt-blacklist] Token already in blacklist")
+        kong.log.info("[jwt-blacklist] Token already in blacklist")
         return false, {
             status = 401,
             message = "Token already in blacklist"
