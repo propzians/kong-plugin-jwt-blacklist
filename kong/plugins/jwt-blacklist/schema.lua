@@ -1,7 +1,7 @@
 local typedefs = require "kong.db.schema.typedefs"
 
 return {
-    name = "rate-limiting",
+    name = "jwt-blacklist",
     fields = {
         { protocols = typedefs.protocols_http },
         { config = {
@@ -16,8 +16,10 @@ return {
                 { redis_server_name = typedefs.sni },
                 { redis_timeout = { type = "number", default = 2000, }, },
                 { redis_database = { type = "integer", default = 0 }, },
+                { token_member = { type = "string", default = "keycloak:token:blacklist" }, },
                 { token_prefix = { type = "string", default = "token_" }, },
                 { token_verify = { type = "boolean", required = true, default = true }, },
+                { user_member = { type = "string", default = "keycloak:user:blacklist" }, },
                 { user_prefix = { type = "string" , default = "user_"}, },
                 { user_verify = { type = "boolean", required = true, default = true }, },
                 { user_claim_name = { type = "string" , default = "sub"}, },
@@ -37,6 +39,9 @@ return {
                     elements = { type = "string" },
                     default = { "authorization" },
                 }, },
+                { client_id = { type = "string" , required = true}, },
+                { client_secret = { type = "string" , required = true}, },
+                { introspection_endpoint = { type = "string" , required = true}, },
             }
         },
         },

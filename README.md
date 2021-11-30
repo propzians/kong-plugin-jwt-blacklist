@@ -1,4 +1,8 @@
-## Install Lua && lua rock 
+# Kong Plugins Jwt Placklist
+
+## Develop plugins
+
+### Install Lua and lua rock 
 * https://github.com/luarocks/luarocks/wiki/Installation-instructions-for-Unix
 
 install lua
@@ -24,68 +28,63 @@ sudo make install
 ```
 
 
-## Test plugins
+## Build image
+
+We will use docker-file in https://github.com/kong/docker-kong/blob/master/customize/Dockerfile. So we will clone repository https://github.com/kong/docker-kong
+
+In MacOS
 
 ```shell
 
-pongo run --no-cassandra --redis  
-
-
-pongo up --expose  --no-cassandra --redis 
-
-
-docker exec -it kong kong config init kong.yml
-
-
-docker run -d --name kong \                                                                      │bash-5.1$ ps
-    -e "KONG_DATABASE=off" \                                                                                           │PID   USER     TIME  COMMAND
-    -e "KONG_PROXY_ACCESS_LOG=/dev/stdout" \                                                                           │    1 kong      0:00 nginx: master process /usr/local/openresty/nginx/sbin/nginx -p /usr/local/kong -c nginx.conf
-    -e "KONG_ADMIN_ACCESS_LOG=/dev/stdout" \                                                                           │ 1098 kong      0:00 nginx: worker process
-    -e "KONG_PROXY_ERROR_LOG=/dev/stderr" \                                                                            │ 1099 kong      0:00 nginx: worker process
-    -e "KONG_ADMIN_ERROR_LOG=/dev/stderr" \                                                                            │ 1100 kong      0:00 nginx: worker process
-    -e "KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl" \                                                            │ 1101 kong      0:00 nginx: worker process
-    -p 8000:8000 \                                                                                                     │ 1273 kong      0:00 bash
-    -p 8443:8443 \                                                                                                     │ 1281 kong      0:00 ps
-    -p 8001:8001 \                                                                                                     │bash-5.1$ clear%
-    -p 8444:8444 \
+export DOCKER_BUILDKIT=0
+export COMPOSE_DOCKER_CLI_BUILD=0
 ```
-## config
+
+```shell
+
+cd docker-kong customize
+
+docker build --no-cache \
+--build-arg KONG_BASE="kong:2.6.0-alpine" \
+--build-arg PLUGINS="kong-plugin-jwt-blacklist" \
+--tag "kong-jwt-blacklist" .
+```
+
+
+## Test
 
 https://docs.konghq.com/gateway-oss/2.5.x/getting-started/configuring-a-service/
 
 ```shell
-
+---Create demo-service, demo service will redirect to http://host.docker.internal:8888
 curl -i -X POST \
   --url http://localhost:8001/services/ \
   --data 'name=demo-service' \
   --data 'url=http://host.docker.internal:8888'
 
-
+---Add route to demo-service
 
 curl -i -X POST \
   --url http://localhost:8001/services/demo-service/routes \
   --data 'hosts[]=demo.com'
 
-
+--Test demo-service
 curl -i -X GET \
   --url http://localhost:8000/ \
   --header 'Host: demo.com'
 
-
+---Add plugin to demo-service
 curl -i -X POST --url http://localhost:8001/services/demo-service/plugins/ --data 'name=jwt-blacklist'
 
-curl -X POST http://localhost:8001/services/demo-service/plugins \
-    --data "name=jwt-blacklist"  \
-    --data "config.redis_host="host.docker.internal"" \
-    --data "config.redis_port=6379"
-    
+---Add plugin to demo-service with redis config 
+
 curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
 --form 'name="jwt-blacklist"' \
 --form 'config.redis_host="host.docker.internal"' \
 --form 'config.redis_port=6379' \
 --form 'config.redis_timeout="2000"'
 
---- with prefix 
+--- Add plugin to demo-service with redis  with prefix 
 curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
 --form 'name="jwt-blacklist"' \
 --form 'config.redis_host="host.docker.internal"' \
@@ -125,28 +124,16 @@ curl -i -X POST \
 
 ```
 
- ###
-
- kong migrations bootstrap [-c /path/to/kong.conf]
-
-
-
-
-
-### Build image
-
-```shell
-export DOCKER_BUILDKIT=0
-export COMPOSE_DOCKER_CLI_BUILD=0
-
-docker build --no-cache \
---build-arg KONG_BASE="kong:2.6.0-alpine" \
---build-arg PLUGINS="kong-plugin-jwt-blacklist" \
---tag "kong-jwt-blacklist" .
-```
 
 ###  Test
+Redis add key
+```shell
+-- add token 'test' with default config.token_prefix=token_
+SADD keycloak:token:blacklist token_test
 
+-- SMEMBERS keycloak:token:blacklist
+
+```
 
 ```shell
 

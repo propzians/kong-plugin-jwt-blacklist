@@ -5,7 +5,6 @@ local cjson = require "cjson"
 local kong = kong
 local type = type
 local ipairs = ipairs
-local tostring = tostring
 local error = error
 local re_gmatch = ngx.re.gmatch
 
@@ -127,6 +126,19 @@ local function get_redis_connection(conf)
     return red
 end
 
+
+local function introspect_token(conf, token)
+    local res, err = require("resty.openidc").introspect(conf)
+    if err then
+        kong.log.info("[jwt-blacklist] introspect token fail " .. token, err)
+        return false, {
+            status = 401,
+            message = "Token has been locked"
+        }
+    end
+    return res
+end
+
 local function check_valid_token(conf)
     local token, err = retrieve_token(conf)
     if err then
@@ -158,20 +170,20 @@ local function check_valid_token(conf)
         local red, redis_err = get_redis_connection(conf)
         if not red then
             kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
-            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+            introspect_token(conf, token)
         end
-
-        local verify, q_err = red:exists(conf.token_prefix .. token)
+        ---SISMEMBER
+        local verify, q_err = red:sismember(conf.token_member, conf.token_prefix .. token)
         if q_err then
             kong.log.err("[jwt-blacklist] Could connect redis", q_err)
-            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+            introspect_token(conf, token)
         end
 
         if verify > 0 then
             kong.log.info("[jwt-blacklist] Token already in blacklist: " .. token)
             return false, {
                 status = 401,
-                message = "Token already in blacklist"
+                message = "Token has been locked"
             }
         end
     end
@@ -181,7 +193,7 @@ local function check_valid_token(conf)
         local red, redis_err = get_redis_connection(conf)
         if not red then
             kong.log.err("[jwt-blacklist] Could connect redis", redis_err)
-            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+            introspect_token(conf, token)
         end
 
         -- Decode token to find out who the consumer is
@@ -193,10 +205,10 @@ local function check_valid_token(conf)
         local claims = jwt.claims
         local user_id = claims[conf.user_claim_name]
 
-        local verify, q_err = red:exists(conf.user_prefix .. user_id)
+        local verify, q_err = red:sismember(conf.user_member, conf.user_prefix .. user_id)
         if q_err then
             kong.log.err("[jwt-blacklist] Could connect redis", q_err)
-            return kong.response.exit(503, "Service Temporarily Unavailable") -- TODO: add fallback
+            introspect_token(conf, token)
         end
 
         if verify > 0 then
