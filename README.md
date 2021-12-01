@@ -1,8 +1,10 @@
-# Kong Plugins Jwt Placklist
+# Kong Plugins Jwt Blacklist
 
+## Flow chart
+
+![Alt text](image/jwt_blacklist.png?raw=true "Title")
 ## Develop plugins
 
-### Install Lua and lua rock 
 * https://github.com/luarocks/luarocks/wiki/Installation-instructions-for-Unix
 
 install lua
@@ -51,48 +53,57 @@ docker build --no-cache \
 ```
 
 
-## Test
+## Testing
 
-https://docs.konghq.com/gateway-oss/2.5.x/getting-started/configuring-a-service/
+### Config service 
 
+* https://docs.konghq.com/gateway-oss/2.5.x/getting-started/configuring-a-service/
+
+
+* Create `demo-service`, `demo-service` will redirect to http://host.docker.internal:8888
 ```shell
----Create demo-service, demo service will redirect to http://host.docker.internal:8888
 curl -i -X POST \
   --url http://localhost:8001/services/ \
   --data 'name=demo-service' \
   --data 'url=http://host.docker.internal:8888'
-
----Add route to demo-service
-
+```
+* Add route to `demo-service`
+```shell
 curl -i -X POST \
   --url http://localhost:8001/services/demo-service/routes \
   --data 'hosts[]=demo.com'
+```
+* Test call  `demo-service`
 
---Test demo-service
+```shell
 curl -i -X GET \
   --url http://localhost:8000/ \
   --header 'Host: demo.com'
+```
 
----Add plugin to demo-service
-curl -i -X POST --url http://localhost:8001/services/demo-service/plugins/ --data 'name=jwt-blacklist'
+* Add plugin to `demo-service` with `redis` config redis
 
----Add plugin to demo-service with redis config 
-
+```shell
 curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
 --form 'name="jwt-blacklist"' \
 --form 'config.redis_host="host.docker.internal"' \
 --form 'config.redis_port=6379' \
 --form 'config.redis_timeout="2000"'
+```
 
---- Add plugin to demo-service with redis  with prefix 
+* Add plugin to `demo-service` with `redis`  with prefix 
+
+```shell
 curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
 --form 'name="jwt-blacklist"' \
 --form 'config.redis_host="host.docker.internal"' \
 --form 'config.redis_port=6379' \
 --form 'config.redis_timeout="2000"' \
 --form 'config.token_prefix=token_'
+```
 
---- Add plugin to demo-service with redis  with prefix 
+* Add plugin to `demo-service` with `Redis` and `client`
+```shell
 curl --location --request POST 'http://localhost:8001/services/demo-service/plugins/' \
 --form 'name="jwt-blacklist"' \
 --form 'config.redis_host="host.docker.internal"' \
@@ -101,8 +112,9 @@ curl --location --request POST 'http://localhost:8001/services/demo-service/plug
 --form 'config.client_id="kong"' \
 --form 'config.client_secret="e1dd102e-538d-44f2-8735-f6418693024a"' \
 --form 'config.introspection_endpoint="http://0799-116-110-41-202.ngrok.io/auth/realms/demo/protocol/openid-connect/token/introspect"' 
+```
 
-
+```shell
 http --form POST 'http://kong:8001/services/demo-service/plugins' \
   name=jwt-blacklist \
   config.redis_token_prefix=Token \
@@ -111,44 +123,34 @@ http --form POST 'http://kong:8001/services/demo-service/plugins' \
   config.redis_password='[redis password]' \
   config.redis_timeout=2000 \
   config.token_secret=secret
-
-
+```
+* Retrieve all plugins by `demo-service`
+```shell
 curl -i -X GET --url http://localhost:8001/services/demo-service/plugins/ 
-
-
-
---Delete plugins
-curl -i -X DELETE --url http://localhost:8001/services/demo-service/plugins/7eb96d3a-9a91-41f4-9505-5a519a51a10e
-
- http :8001/config config=@kong.yml
-
 ```
 
 
+* Delete plugins
 ```shell
-
- https://hub.docker.com/_/kong
-
-curl -i -X POST \
-  --url http://localhost:8001/services/demo-service/plugins/ \
-  --data 'name=jwt-blacklist'
-
+curl -i -X DELETE --url http://localhost:8001/services/demo-service/plugins/{{pluginId}}
 ```
 
+###  Call api 
 
-###  Test
-Redis add key
+* Put `token` into blacklist `keycloak:token:blacklist`  with `redis-cli`
+
+Add token 'test' with default config.token_prefix=token_
 ```shell
--- add token 'test' with default config.token_prefix=token_
 SADD keycloak:token:blacklist token_test
-
--- SMEMBERS keycloak:token:blacklist
-
 ```
 
+Retrieve all token of `keycloak:token:blacklist`
 ```shell
+SMEMBERS keycloak:token:blacklist
+```
 
-
+Call HTTP request
+```shell
 
 curl -i -X GET --url http://localhost:8000/ \
   --header 'Host: demo.com' \
@@ -157,7 +159,5 @@ curl -i -X GET --url http://localhost:8000/ \
 
 curl -i -X GET --url http://localhost:8000/ \
   --header 'Host: demo.com' \
-  --header 'Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ5N3VobVhyTUpVaEUxNExkc2lqb0VxbG56YUF0d3JyeE43b19zVEZIVWJJIn0.eyJleHAiOjE2MzgyOTgxMjYsImlhdCI6MTYzODI4MDEyNiwianRpIjoiM2UwZGVmOGUtZDhhNS00NjU5LTkwMTQtYjNlMTM0NGFmNTFiIiwiaXNzIjoiaHR0cDovLzA3OTktMTE2LTExMC00MS0yMDIubmdyb2suaW8vYXV0aC9yZWFsbXMvZGVtbyIsImF1ZCI6ImFjY291bnQiLCJzdWIiOiI0OTNkZGQyMS01NDAyLTQ4NWUtOTdlNy03MjhlMzRhYTA3ZmUiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJrb25nIiwic2Vzc2lvbl9zdGF0ZSI6IjNkMzQ4NTRkLWRhNzAtNGJhOS04N2MxLTU2ODZjNzc0M2UxMyIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiIsImRlZmF1bHQtcm9sZXMtZGVtbyJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiZW1haWwgcHJvZmlsZSIsInNpZCI6IjNkMzQ4NTRkLWRhNzAtNGJhOS04N2MxLTU2ODZjNzc0M2UxMyIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJoYWluZC52bmdAZ21haWwuY29tIiwiZW1haWwiOiJoYWluZC52bmdAZ21haWwuY29tIn0.mKu94MGcaw4tlaRRrGdwznH6K1bfqzPMyxSvC2C2hQtXSQMoiK4XTGkKeEHUXJPLKLNF2jxIEFrvFaIPgQmK08fNHiX_tUD4q7dQwkpxEexgCB_T5SNCMNy42oqlpwyJuFrItdTmYoVzLTtX1sz9MrKAXISGr864s5BIWR2qfZRPg-jaE_G0lFZaWlqE3idWXoEsOzydgk5EPwb1OFivMk5sUwA-CikUfiU0qUIxcVospJ_833eOJwJGwpf0xUiok4CaQ01sLeaMBNnIVxXkQYyq44cpbL4WxLl7tNCXsfHm9UXoqNZv3XyULMAfHBeNogFZTZDKmYCOm0jK04cfnA'
-
-
+  --header 'Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJmN0ZuTjRHam9JVnhSNkRGRGo1VEFIQktWQUFLN2tYVzlwOVV5M3B6MnlBIn0.eyJleHAiOjE2MzgzMzE1MjksImlhdCI6MTYzODMzMTIyOSwianRpIjoiOWVjMmU0M2ItY2YyZi00MjIyLWI5ZjItNjJhNjY0YjA4OWI4IiwiaXNzIjoiaHR0cDovL2Rldi1rZXljbG9hay1zZXJ2aWNlLXYxLms4cy5wcm9wenkuYXNpYS9hdXRoL3JlYWxtcy9kZW1vIiwic3ViIjoiODFlODY1MWUtZWVkZC00ODQwLWFhMDktYjIxM2U0MWM0YTRmIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoidGVzdDAwMSIsInNlc3Npb25fc3RhdGUiOiJkNzY2NGI4ZC1iZWE5LTQ3ODEtODZkMC1mOGU2N2E1YzE1MjciLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbImh0dHA6Ly9sb2NhbGhvc3Q6ODA4MSJdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsidXNlciJdfSwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwic2lkIjoiZDc2NjRiOGQtYmVhOS00NzgxLTg2ZDAtZjhlNjdhNWMxNTI3IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJ1c2VyIn0.XIxvvz3IjSPK1NzgvHJr4lO-NtgkU-63tYbUlgphnLNwKiz3__c-4qTRnR_-9tfPF9KN-8Y5ZRGf4lVVxHYaVWVNcUjH6qfXGu1vp70vUR00fJdswnOkp53ZceCr-L81GE00gftZH3-luyrAd-H_XrT7yUYSVJkn-mveG_0wv2qdGHImq51znsxUuerDRseAvXg19XYx8UzpRA8IL2oj2z8DLykfafxACzgmk3YaDptKWHuMka0bnpzQzO0iKWYymd5gEFwVaQ5eSb2wFyRb39pnS17DhjX8WGesTnhsDKCI_dxilREKIoQcLZjYz_HwYPksy5WSAW33wxCQRizwuA'
 ```
