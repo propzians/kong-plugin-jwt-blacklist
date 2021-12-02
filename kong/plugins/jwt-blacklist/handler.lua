@@ -9,9 +9,10 @@ local ipairs = ipairs
 local error = error
 local re_gmatch = ngx.re.gmatch
 
+--- PRIORITY have lower priority than JWT plugins (JWT have priority 1005)
 local JwtBlacklistHandler = {
     VERSION = "0.1.2",
-    PRIORITY = 1006
+    PRIORITY = 999
 }
 
 --- Retrieve a JWT in a request.
