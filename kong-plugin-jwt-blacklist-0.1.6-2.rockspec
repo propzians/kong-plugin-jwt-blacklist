@@ -1,7 +1,7 @@
 local plugin_name = "jwt-blacklist"
 local package_name = "kong-plugin-" .. plugin_name
-local package_version = "0.1.5"
-local rockspec_revision = "1"
+local package_version = "0.1.6"
+local rockspec_revision = "2"
 
 local github_account_name = "propzians"
 local github_repo_name = "kong-plugin-jwt-blacklist"
@@ -12,7 +12,7 @@ package = package_name
 version = package_version .. "-" .. rockspec_revision
 supported_platforms = { "linux", "macosx" }
 source = {
-  url = "git://github.com/"..github_account_name.."/"..github_repo_name..".git",
+  url = "git+https://github.com/"..github_account_name.."/"..github_repo_name..".git",
   branch = git_checkout,
 }
 
