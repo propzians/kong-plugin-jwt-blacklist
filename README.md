@@ -48,7 +48,7 @@ cd docker-kong customize
 
 docker build --no-cache \
 --build-arg KONG_BASE="kong:2.6.0-alpine" \
---build-arg PLUGINS="kong-plugin-jwt-blacklist,lua-resty-openidc" \
+--build-arg PLUGINS="kong-plugin-jwt-blacklist" \
 --tag "kong-jwt-blacklist" .
 ```
 
